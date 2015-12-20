@@ -27,6 +27,7 @@ public class ObjCompiler implements AssetCompiler {
         }
     }
 
+    @Override
     public boolean compile(File inputFile, File outputFile) {
         List<Vector3> positions = new ArrayList<Vector3>();
         List<Vector3> normals = new ArrayList<Vector3>();

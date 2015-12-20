@@ -57,6 +57,7 @@ public class MetalShaderCompiler implements AssetCompiler {
         return true;
     }
 
+    @Override
     public boolean compile(File inputFile, File outputFile) {
         try {
             String tempDir = Files.createTempDirectory(null).toString();
