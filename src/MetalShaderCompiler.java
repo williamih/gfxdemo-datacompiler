@@ -1,5 +1,4 @@
-import java.io.File;
-import java.io.IOException;
+import java.io.*;
 import java.nio.file.Files;
 
 public class MetalShaderCompiler implements AssetCompiler {
@@ -29,6 +28,11 @@ public class MetalShaderCompiler implements AssetCompiler {
             p.waitFor();
         } catch (InterruptedException e) {
             return false;
+        }
+        BufferedReader reader = new BufferedReader(new InputStreamReader(p.getErrorStream()));
+        String line;
+        while ((line = reader.readLine()) != null) {
+            System.out.println(line);
         }
         return true;
     }
