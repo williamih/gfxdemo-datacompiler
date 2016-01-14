@@ -35,7 +35,7 @@ public final class DataCompiler {
     public static void main(String[] args) {
         Map<Pattern, CompilerInfo> map = new HashMap<Pattern, CompilerInfo>();
         map.put(Pattern.compile("(.*)\\.obj"), new CompilerInfo(new ObjCompiler(), "Assets/$1.mdl"));
-        map.put(Pattern.compile("(.*)\\.metal"), new CompilerInfo(new MetalShaderCompiler(), "Assets/$1.metallib"));
+        map.put(Pattern.compile("(.*)\\.metal"), new CompilerInfo(new MetalShaderCompiler(), "Assets/$1_MTL.shd"));
 
         for (String manifestFilename : args) {
             BufferedReader reader = null;
