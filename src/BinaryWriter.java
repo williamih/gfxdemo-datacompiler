@@ -26,9 +26,9 @@ public class BinaryWriter implements Closeable {
 
     public void write32(int n) throws IOException {
         m_file.write(n & 0xFF);
-        m_file.write((n >> 8) & 0xFF);
-        m_file.write((n >> 16) & 0xFF);
-        m_file.write((n >> 24) & 0xFF);
+        m_file.write((n >>> 8) & 0xFF);
+        m_file.write((n >>> 16) & 0xFF);
+        m_file.write((n >>> 24) & 0xFF);
     }
 
     public void writeFloat(float f) throws IOException {
