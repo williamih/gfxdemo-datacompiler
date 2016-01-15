@@ -85,6 +85,10 @@ public class MetalShaderCompiler implements AssetCompiler {
                     continue;
                 int index = Integer.parseInt(m.group(1));
                 String ifdefName = m.group(2);
+                if (index > 63) {
+                    System.out.printf("Error: shader flag F_%d%s - index cannot be greater than 63%n", index, ifdefName);
+                    return null;
+                }
                 map.put(index, ifdefName);
             }
         }
@@ -140,6 +144,9 @@ public class MetalShaderCompiler implements AssetCompiler {
             tempDir = Files.createTempDirectory(null).toString();
 
             Map<Integer, String> ifdefs = findOptionIfdefs(inputFile);
+            if (ifdefs == null) {
+                return false;
+            }
             List<Integer> sortedOptionIndices = new ArrayList<Integer>(ifdefs.keySet());
             Collections.sort(sortedOptionIndices);
             int nPermutations = 1 << sortedOptionIndices.size();
@@ -159,7 +166,7 @@ public class MetalShaderCompiler implements AssetCompiler {
             for (int k = 0; k < nPermutations; ++k) {
                 int i = numbers.get(k);
                 List<String> macros = new ArrayList<String>();
-                int permuteMask = 0;
+                long permuteMask = 0;
                 for (int j = 0; j < nOptions; ++j) {
                     if ((i & (1 << j)) != 0) {
                         int bitIndex = sortedOptionIndices.get(j);
@@ -169,14 +176,18 @@ public class MetalShaderCompiler implements AssetCompiler {
                 }
                 logPermutationCompile(macros);
                 byte[] data = internalCompileShader(inputFile, tempDir, macros);
+                if (data == null) {
+                    return false;
+                }
 
                 long permuteHeaderPos = writer.getFilePointer();
-                writer.write32(permuteMask);
+                writer.write64(permuteMask);
                 writer.write32(data.length); // vs data length
                 writer.write32(0); // ps data length
                 long pos_ofsNextPermutation = writer.writeTemp32();
+                writer.write32(0); // padding (for alignment purposes)
                 writer.write(data);
-                writer.align(4); // 4 byte alignment
+                writer.align(8); // 8 byte alignment - necessary because the permutation mask is 64-bit
                 writer.overwriteTemp32(pos_ofsNextPermutation, (int)(writer.getFilePointer() - permuteHeaderPos));
             }
 
