@@ -125,7 +125,7 @@ public class MetalShaderCompiler implements AssetCompiler {
             System.out.print(", ");
             System.out.print(macros.get(i));
         }
-        System.out.print("}\n");
+        System.out.println("}");
     }
 
     static class DescendingPopcountComparator implements Comparator<Integer> {

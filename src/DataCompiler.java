@@ -21,14 +21,14 @@ public final class DataCompiler {
                 continue;
             CompilerInfo info = map.get(pattern);
             String outputFilename = m.replaceFirst(info.replacementString);
-            System.out.printf("Compiling %s...\n", filename);
+            System.out.printf("Compiling %s...%n", filename);
             if (!info.compiler.compile(new File(filename), new File(outputFilename))) {
-                System.out.printf("Failed to compile %s (output filename: %s)\n", filename, outputFilename);
+                System.out.printf("Failed to compile %s (output filename: %s)%n", filename, outputFilename);
                 return false;
             }
             return true;
         }
-        System.out.printf("Warning: %s listed in manifest but no compiler found\n", filename);
+        System.out.printf("Warning: %s listed in manifest but no compiler found%n", filename);
         return true;
     }
 
