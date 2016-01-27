@@ -3,6 +3,11 @@ import java.util.Map.Entry;
 import java.io.*;
 
 public class ObjCompiler implements AssetCompiler {
+    static class Vector2 {
+        float x;
+        float y;
+    }
+
     static class Vector3 {
         float x;
         float y;
@@ -12,17 +17,20 @@ public class ObjCompiler implements AssetCompiler {
     static class Vertex {
         int idxPosition;
         int idxNormal;
+        int idxTexCoord;
 
         @Override
         public boolean equals(Object other) {
             if (!(other instanceof Vertex)) return false;
             Vertex v = (Vertex)other;
-            return idxPosition == v.idxPosition && idxNormal == v.idxNormal;
+            return idxPosition == v.idxPosition &&
+                   idxNormal == v.idxNormal &&
+                   idxTexCoord == v.idxTexCoord;
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(idxPosition, idxNormal);
+            return Objects.hash(idxPosition, idxNormal, idxTexCoord);
         }
     }
 
@@ -184,6 +192,7 @@ public class ObjCompiler implements AssetCompiler {
     public boolean compile(File inputFile, File outputFile) {
         List<Vector3> positions = new ArrayList<Vector3>();
         List<Vector3> normals = new ArrayList<Vector3>();
+        List<Vector2> texcoords = new ArrayList<Vector2>();
         Map<Vertex, Integer> vertices = new HashMap<Vertex, Integer>();
         List<Integer> indices = new ArrayList<Integer>();
 
@@ -204,17 +213,24 @@ public class ObjCompiler implements AssetCompiler {
                     v.z = lexer.nextFloat();
                     normals.add(v);
                 }
+                else if (token.equals("vt")) {
+                    Vector2 uv = new Vector2();
+                    uv.x = lexer.nextFloat();
+                    uv.y = lexer.nextFloat();
+                    texcoords.add(uv);
+                }
                 else if (token.equals("f")) {
                     for (int i = 0; i < 3; ++i) {
                         int posIdx = lexer.nextInt();
                         int normalIdx = Integer.MAX_VALUE;
+                        int texCoordIdx = Integer.MAX_VALUE;
                         if (lexer.hasNext("/")) {
                             lexer.nextToken();
                             if (lexer.hasNext("/")) {
                                 lexer.nextToken();
                                 normalIdx = lexer.nextInt();
                             } else {
-                                lexer.nextInt();
+                                texCoordIdx = lexer.nextInt();
                                 if (lexer.hasNext("/")) {
                                     lexer.nextToken();
                                     normalIdx = lexer.nextInt();
@@ -225,9 +241,13 @@ public class ObjCompiler implements AssetCompiler {
                             System.out.println("Error: obj file doesn't have normals");
                             return false;
                         }
+                        if (texCoordIdx == Integer.MAX_VALUE) {
+                            texCoordIdx = 1; // use first texcoord
+                        }
                         Vertex v = new Vertex();
                         v.idxPosition = posIdx;
                         v.idxNormal = normalIdx;
+                        v.idxTexCoord = texCoordIdx;
                         Integer index = vertices.get(v);
                         if (index == null) {
                             index = vertices.size();
@@ -241,6 +261,13 @@ public class ObjCompiler implements AssetCompiler {
             }
         } catch (IOException e) {
             return false;
+        }
+
+        if (texcoords.isEmpty()) {
+            Vector2 uv = new Vector2();
+            uv.x = 0.0f;
+            uv.y = 0.0f;
+            texcoords.add(uv);
         }
 
         try (BinaryWriter writer = new BinaryWriter(outputFile)) {
@@ -259,12 +286,15 @@ public class ObjCompiler implements AssetCompiler {
                 Vertex v = e.getKey();
                 Vector3 pos = positions.get(v.idxPosition - 1);
                 Vector3 normal = normals.get(v.idxNormal - 1);
+                Vector2 texcoord = texcoords.get(v.idxTexCoord - 1);
                 writer.writeFloat(pos.x);
                 writer.writeFloat(pos.y);
                 writer.writeFloat(pos.z);
                 writer.writeFloat(normal.x);
                 writer.writeFloat(normal.y);
                 writer.writeFloat(normal.z);
+                writer.writeFloat(texcoord.x);
+                writer.writeFloat(texcoord.y);
             }
 
             for (int index : indices) {
