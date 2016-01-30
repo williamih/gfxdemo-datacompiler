@@ -53,7 +53,7 @@ public class ObjCompiler implements AssetCompiler {
             do {
                 stringBuilder.append((char)c);
                 c = reader.read();
-            } while (('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z'));
+            } while (('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || c == '_');
         }
 
         private void parseNumber(boolean isNegative) throws IOException {
@@ -175,11 +175,16 @@ public class ObjCompiler implements AssetCompiler {
             return currentToken.equals(s);
         }
 
-        public void skipLine() throws IOException {
-            while (c != '\n') {
+        public String readToNextLine() throws IOException {
+            stringBuilder.append(currentToken);
+            while (c != '\n' && c != '\r') {
+                stringBuilder.append((char)c);
                 c = reader.read();
             }
+            String s = stringBuilder.toString();
+            stringBuilder.setLength(0);
             fetchNextToken();
+            return s;
         }
 
         @Override
@@ -187,6 +192,25 @@ public class ObjCompiler implements AssetCompiler {
             reader.close();
         }
     };
+
+    static class MaterialInfo {
+        public String diffuseTexture = null;
+    };
+
+    private MaterialInfo parseMaterialFile(File materialFile) throws IOException {
+        MaterialInfo materialInfo = new MaterialInfo();
+        try (Lexer lexer = new Lexer(materialFile)) {
+            while (lexer.hasNext()) {
+                String token = lexer.nextToken();
+                if (token.equals("map_Kd")) {
+                    materialInfo.diffuseTexture = lexer.readToNextLine();
+                } else {
+                    lexer.readToNextLine();
+                }
+            }
+        }
+        return materialInfo;
+    }
 
     @Override
     public boolean compile(File inputFile, File outputFile) {
@@ -196,10 +220,18 @@ public class ObjCompiler implements AssetCompiler {
         Map<Vertex, Integer> vertices = new HashMap<Vertex, Integer>();
         List<Integer> indices = new ArrayList<Integer>();
 
+        MaterialInfo materialInfo = null;
+
         try (Lexer lexer = new Lexer(inputFile)) {
             while (lexer.hasNext()) {
                 String token = lexer.nextToken();
-                if (token.equals("v")) {
+                if (token.equals("mtllib")) {
+                    String filename = lexer.readToNextLine();
+                    File f = new File(inputFile.getParentFile(), filename);
+                    if (f.exists())
+                        materialInfo = parseMaterialFile(f);
+                }
+                else if (token.equals("v")) {
                     Vector3 v = new Vector3();
                     v.x = lexer.nextFloat();
                     v.y = lexer.nextFloat();
@@ -256,11 +288,18 @@ public class ObjCompiler implements AssetCompiler {
                         indices.add(index);
                     }
                 } else {
-                    lexer.skipLine();
+                    lexer.readToNextLine();
                 }
             }
         } catch (IOException e) {
             return false;
+        }
+
+        List<String> textures = new ArrayList<String>();
+        int diffuseTextureIndex = 0xFFFFFFFF;
+        if (materialInfo != null && materialInfo.diffuseTexture != null) {
+            textures.add(materialInfo.diffuseTexture);
+            diffuseTextureIndex = 0;
         }
 
         if (texcoords.isEmpty()) {
@@ -274,7 +313,27 @@ public class ObjCompiler implements AssetCompiler {
             writer.write(new char[] {'M', 'O', 'D', 'L'});
             writer.write32(0); // version
             writer.write32(vertices.size()); // nVertices
+            long ofsVerticesPos = writer.writeTemp32(); // ofsVertices
             writer.write32(indices.size()); // nIndices
+            long ofsIndicesPos = writer.writeTemp32(); // ofsIndices
+            writer.write32(textures.size()); // nTextures
+            long ofsTexturesPos = writer.writeTemp32();
+            writer.write32(diffuseTextureIndex);
+
+            long texturesPos = writer.getFilePointer();
+            writer.overwriteTemp32(ofsTexturesPos, (int)texturesPos);
+            for (String s : textures) {
+                writer.write32(0); // type
+                writer.write32(0); // flags
+                writer.write32(s.length());
+                writer.writeTemp32(); // ofsFilename
+            }
+            for (int i = 0; i < textures.size(); ++i) {
+                writer.overwriteTemp32(texturesPos + 16*i + 12, (int)writer.getFilePointer());
+                writer.write(textures.get(i).getBytes());
+                writer.write((byte)0);
+            }
+            writer.align(4);
 
             List<Map.Entry<Vertex, Integer>> sortedVertices
                 = new ArrayList<Entry<Vertex, Integer>>(vertices.entrySet());
@@ -282,6 +341,7 @@ public class ObjCompiler implements AssetCompiler {
                              (Map.Entry<Vertex, Integer> e1, Map.Entry<Vertex, Integer> e2) -> {
                 return e1.getValue() - e2.getValue();
             });
+            writer.overwriteTemp32(ofsVerticesPos, (int)writer.getFilePointer());
             for (Map.Entry<Vertex, Integer> e : sortedVertices) {
                 Vertex v = e.getKey();
                 Vector3 pos = positions.get(v.idxPosition - 1);
@@ -297,6 +357,7 @@ public class ObjCompiler implements AssetCompiler {
                 writer.writeFloat(texcoord.y);
             }
 
+            writer.overwriteTemp32(ofsIndicesPos, (int)writer.getFilePointer());
             for (int index : indices) {
                 writer.write32(index);
             }
