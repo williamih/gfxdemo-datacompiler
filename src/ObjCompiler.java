@@ -213,7 +213,9 @@ public class ObjCompiler implements AssetCompiler {
     }
 
     @Override
-    public boolean compile(File inputFile, File outputFile) {
+    public boolean compile(File inputFile, List<File> outputFiles) {
+        File outputFile = outputFiles.get(0);
+
         List<Vector3> positions = new ArrayList<Vector3>();
         List<Vector3> normals = new ArrayList<Vector3>();
         List<Vector2> texcoords = new ArrayList<Vector2>();

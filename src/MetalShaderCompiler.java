@@ -138,7 +138,9 @@ public class MetalShaderCompiler implements AssetCompiler {
     }
 
     @Override
-    public boolean compile(File inputFile, File outputFile) {
+    public boolean compile(File inputFile, List<File> outputFiles) {
+        File outputFile = outputFiles.get(0);
+
         String tempDir = null;
         try (BinaryWriter writer = new BinaryWriter(outputFile)) {
             tempDir = Files.createTempDirectory(null).toString();
