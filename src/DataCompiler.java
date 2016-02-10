@@ -77,7 +77,7 @@ public final class DataCompiler {
 
     public static void main(String[] args) {
         Map<Pattern, CompilerInfo> map = new HashMap<Pattern, CompilerInfo>();
-        addRule(map, "(.*)\\.obj", new ObjCompiler(), "Assets/$1.mdl");
+        addRule(map, "(.*)\\.obj", new ObjCompiler(), "Assets/$1.mdl", "Assets/$1.mdg");
         addRule(map, "(.*)\\.metal", new MetalShaderCompiler(), "Assets/$1_MTL.shd");
 
         for (String manifestFilename : args) {

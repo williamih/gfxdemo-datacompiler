@@ -212,10 +212,76 @@ public class ObjCompiler implements AssetCompiler {
         return materialInfo;
     }
 
+    private void writeMDLFile(BinaryWriter writer, int nIndices, long diffuseTextureIndex) throws IOException {
+        writer.write(new char[] {'M', 'O', 'D', 'L'});
+        writer.write32(0); // version
+        writer.write32(1); // nSubmeshes
+        long ofsSubmeshesPos = writer.writeTemp32();
+
+        writer.overwriteTemp32(ofsSubmeshesPos, (int)writer.getFilePointer());
+        writer.write32(0); // indexStart
+        writer.write32(nIndices); // indexCount
+        writer.write64(diffuseTextureIndex);
+    }
+
+    private void writeMDGFile(BinaryWriter writer,
+                              List<Vector3> positions,
+                              List<Vector3> normals,
+                              List<Vector2> texcoords,
+                              Map<Vertex, Integer> vertices,
+                              List<Integer> indices,
+                              List<String> textures) throws IOException {
+        writer.write(new char[] {'M', 'D', 'L', 'G'});
+        writer.write32(vertices.size()); // nVertices
+        long ofsVerticesPos = writer.writeTemp32(); // ofsVertices
+        writer.write32(indices.size()); // nIndices
+        long ofsIndicesPos = writer.writeTemp32(); // ofsIndices
+        writer.write32(textures.size()); // nTextures
+        long ofsTexturesPos = writer.writeTemp32(); // ofsTextures
+
+        long texturesPos = writer.getFilePointer();
+        writer.overwriteTemp32(ofsTexturesPos, (int)texturesPos);
+        for (String s : textures) {
+            writer.write32(s.length()); // lenFilename
+            writer.writeTemp32(); // ofsFilename
+        }
+        for (int i = 0; i < textures.size(); ++i) {
+            writer.overwriteTemp32(texturesPos + 8*i + 4, (int)writer.getFilePointer());
+            writer.write(textures.get(i).getBytes());
+            writer.write((byte)0);
+        }
+        writer.align(4);
+
+        List<Map.Entry<Vertex, Integer>> sortedVertices
+        = new ArrayList<Entry<Vertex, Integer>>(vertices.entrySet());
+        Collections.sort(sortedVertices,
+                (Map.Entry<Vertex, Integer> e1, Map.Entry<Vertex, Integer> e2) -> {
+                    return e1.getValue() - e2.getValue();
+                });
+        writer.overwriteTemp32(ofsVerticesPos, (int)writer.getFilePointer());
+        for (Map.Entry<Vertex, Integer> e : sortedVertices) {
+            Vertex v = e.getKey();
+            Vector3 pos = positions.get(v.idxPosition - 1);
+            Vector3 normal = normals.get(v.idxNormal - 1);
+            Vector2 texcoord = texcoords.get(v.idxTexCoord - 1);
+            writer.writeFloat(pos.x);
+            writer.writeFloat(pos.y);
+            writer.writeFloat(pos.z);
+            writer.writeFloat(normal.x);
+            writer.writeFloat(normal.y);
+            writer.writeFloat(normal.z);
+            writer.writeFloat(texcoord.x);
+            writer.writeFloat(texcoord.y);
+        }
+
+        writer.overwriteTemp32(ofsIndicesPos, (int)writer.getFilePointer());
+        for (int index : indices) {
+            writer.write32(index);
+        }
+    }
+
     @Override
     public boolean compile(File inputFile, List<File> outputFiles) {
-        File outputFile = outputFiles.get(0);
-
         List<Vector3> positions = new ArrayList<Vector3>();
         List<Vector3> normals = new ArrayList<Vector3>();
         List<Vector2> texcoords = new ArrayList<Vector2>();
@@ -298,7 +364,7 @@ public class ObjCompiler implements AssetCompiler {
         }
 
         List<String> textures = new ArrayList<String>();
-        int diffuseTextureIndex = 0xFFFFFFFF;
+        long diffuseTextureIndex = 0xFFFFFFFFFFFFFFFFL;
         if (materialInfo != null && materialInfo.diffuseTexture != null) {
             textures.add(materialInfo.diffuseTexture);
             diffuseTextureIndex = 0;
@@ -311,62 +377,21 @@ public class ObjCompiler implements AssetCompiler {
             texcoords.add(uv);
         }
 
-        try (BinaryWriter writer = new BinaryWriter(outputFile)) {
-            writer.write(new char[] {'M', 'O', 'D', 'L'});
-            writer.write32(0); // version
-            writer.write32(vertices.size()); // nVertices
-            long ofsVerticesPos = writer.writeTemp32(); // ofsVertices
-            writer.write32(indices.size()); // nIndices
-            long ofsIndicesPos = writer.writeTemp32(); // ofsIndices
-            writer.write32(textures.size()); // nTextures
-            long ofsTexturesPos = writer.writeTemp32();
-            writer.write32(diffuseTextureIndex);
-
-            long texturesPos = writer.getFilePointer();
-            writer.overwriteTemp32(ofsTexturesPos, (int)texturesPos);
-            for (String s : textures) {
-                writer.write32(0); // type
-                writer.write32(0); // flags
-                writer.write32(s.length());
-                writer.writeTemp32(); // ofsFilename
-            }
-            for (int i = 0; i < textures.size(); ++i) {
-                writer.overwriteTemp32(texturesPos + 16*i + 12, (int)writer.getFilePointer());
-                writer.write(textures.get(i).getBytes());
-                writer.write((byte)0);
-            }
-            writer.align(4);
-
-            List<Map.Entry<Vertex, Integer>> sortedVertices
-                = new ArrayList<Entry<Vertex, Integer>>(vertices.entrySet());
-            Collections.sort(sortedVertices,
-                             (Map.Entry<Vertex, Integer> e1, Map.Entry<Vertex, Integer> e2) -> {
-                return e1.getValue() - e2.getValue();
-            });
-            writer.overwriteTemp32(ofsVerticesPos, (int)writer.getFilePointer());
-            for (Map.Entry<Vertex, Integer> e : sortedVertices) {
-                Vertex v = e.getKey();
-                Vector3 pos = positions.get(v.idxPosition - 1);
-                Vector3 normal = normals.get(v.idxNormal - 1);
-                Vector2 texcoord = texcoords.get(v.idxTexCoord - 1);
-                writer.writeFloat(pos.x);
-                writer.writeFloat(pos.y);
-                writer.writeFloat(pos.z);
-                writer.writeFloat(normal.x);
-                writer.writeFloat(normal.y);
-                writer.writeFloat(normal.z);
-                writer.writeFloat(texcoord.x);
-                writer.writeFloat(texcoord.y);
-            }
-
-            writer.overwriteTemp32(ofsIndicesPos, (int)writer.getFilePointer());
-            for (int index : indices) {
-                writer.write32(index);
-            }
-        } catch (Exception e) {
+        try (BinaryWriter mdlFileWriter = new BinaryWriter(outputFiles.get(0));
+             BinaryWriter mdgFileWriter = new BinaryWriter(outputFiles.get(1))) {
+            writeMDLFile(mdlFileWriter, indices.size(), diffuseTextureIndex);
+            writeMDGFile(
+                mdgFileWriter,
+                positions,
+                normals,
+                texcoords,
+                vertices,
+                indices,
+                textures
+            );
+            return true;
+        } catch (IOException e) {
             return false;
         }
-
-        return true;
     }
 }
