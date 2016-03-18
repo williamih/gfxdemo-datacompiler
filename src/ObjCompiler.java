@@ -193,42 +193,89 @@ public class ObjCompiler implements AssetCompiler {
         }
     };
 
-    static class MaterialInfo {
+    static class IndexedPool<E> {
+        private Map<E, Integer> map = new HashMap<E, Integer>();
+
+        public int indexFor(E obj) {
+            Integer index = map.get(obj);
+            if (index != null)
+                return index;
+            index = map.size();
+            map.put(obj, index);
+            return index;
+        }
+
+        public int size() {
+            return map.size();
+        }
+
+        public List<E> convertToList() {
+            List<Map.Entry<E, Integer>> sorted = new ArrayList<Entry<E, Integer>>(map.entrySet());
+            Collections.sort(sorted, (Map.Entry<E, Integer> e1, Map.Entry<E, Integer> e2) -> {
+                return e1.getValue() - e2.getValue();
+            });
+            List<E> result = new ArrayList<E>();
+            for (Map.Entry<E, Integer> entry : sorted) {
+                result.add(entry.getKey());
+            }
+            return result;
+        }
+    };
+
+    static class Material {
         public String diffuseTexture = null;
     };
 
-    private MaterialInfo parseMaterialFile(File materialFile) throws IOException {
-        MaterialInfo materialInfo = new MaterialInfo();
+    static class Submesh {
+        public int indexStart = 0;
+        public int indexCount = 0;
+        public long diffuseTextureIndex = 0xFFFFFFFFFFFFFFFFL;
+    };
+
+    private Map<String, Material> parseMaterialFile(File materialFile) throws IOException {
+        Map<String, Material> map = new HashMap<String, Material>();
+        Material currentMaterial = null;
         try (Lexer lexer = new Lexer(materialFile)) {
             while (lexer.hasNext()) {
                 String token = lexer.nextToken();
-                if (token.equals("map_Kd")) {
-                    materialInfo.diffuseTexture = lexer.readToNextLine();
+                if (token.equals("newmtl")) {
+                    String name = lexer.readToNextLine();
+                    currentMaterial = new Material();
+                    map.put(name, currentMaterial);
+                }
+                else if (token.equals("map_Kd")) {
+                    if (currentMaterial == null) {
+                        System.out.println("Material (.mtl) file invalid: material name not specified");
+                        return null;
+                    }
+                    currentMaterial.diffuseTexture = lexer.readToNextLine();
                 } else {
                     lexer.readToNextLine();
                 }
             }
         }
-        return materialInfo;
+        return map;
     }
 
-    private void writeMDLFile(BinaryWriter writer, int nIndices, long diffuseTextureIndex) throws IOException {
+    private void writeMDLFile(BinaryWriter writer, List<Submesh> submeshes) throws IOException {
         writer.write(new char[] {'M', 'O', 'D', 'L'});
         writer.write32(0); // version
-        writer.write32(1); // nSubmeshes
+        writer.write32(submeshes.size()); // nSubmeshes
         long ofsSubmeshesPos = writer.writeTemp32();
 
         writer.overwriteTemp32(ofsSubmeshesPos, (int)writer.getFilePointer());
-        writer.write32(0); // indexStart
-        writer.write32(nIndices); // indexCount
-        writer.write64(diffuseTextureIndex);
+        for (Submesh s : submeshes) {
+            writer.write32(s.indexStart); // indexStart
+            writer.write32(s.indexCount); // indexCount
+            writer.write64(s.diffuseTextureIndex);
+        }
     }
 
     private void writeMDGFile(BinaryWriter writer,
                               List<Vector3> positions,
                               List<Vector3> normals,
                               List<Vector2> texcoords,
-                              Map<Vertex, Integer> vertices,
+                              List<Vertex> vertices,
                               List<Integer> indices,
                               List<String> textures) throws IOException {
         writer.write(new char[] {'M', 'D', 'L', 'G'});
@@ -252,15 +299,8 @@ public class ObjCompiler implements AssetCompiler {
         }
         writer.align(4);
 
-        List<Map.Entry<Vertex, Integer>> sortedVertices
-        = new ArrayList<Entry<Vertex, Integer>>(vertices.entrySet());
-        Collections.sort(sortedVertices,
-                (Map.Entry<Vertex, Integer> e1, Map.Entry<Vertex, Integer> e2) -> {
-                    return e1.getValue() - e2.getValue();
-                });
         writer.overwriteTemp32(ofsVerticesPos, (int)writer.getFilePointer());
-        for (Map.Entry<Vertex, Integer> e : sortedVertices) {
-            Vertex v = e.getKey();
+        for (Vertex v : vertices) {
             Vector3 pos = positions.get(v.idxPosition - 1);
             Vector3 normal = normals.get(v.idxNormal - 1);
             Vector2 texcoord = texcoords.get(v.idxTexCoord - 1);
@@ -285,10 +325,14 @@ public class ObjCompiler implements AssetCompiler {
         List<Vector3> positions = new ArrayList<Vector3>();
         List<Vector3> normals = new ArrayList<Vector3>();
         List<Vector2> texcoords = new ArrayList<Vector2>();
-        Map<Vertex, Integer> vertices = new HashMap<Vertex, Integer>();
+        IndexedPool<Vertex> vertices = new IndexedPool<Vertex>();
         List<Integer> indices = new ArrayList<Integer>();
 
-        MaterialInfo materialInfo = null;
+        Map<String, Material> materials = null;
+
+        List<Submesh> submeshes = new ArrayList<Submesh>();
+        Submesh currentSubmesh = null;
+        IndexedPool<String> texturePaths = new IndexedPool<String>();
 
         try (Lexer lexer = new Lexer(inputFile)) {
             while (lexer.hasNext()) {
@@ -297,7 +341,26 @@ public class ObjCompiler implements AssetCompiler {
                     String filename = lexer.readToNextLine();
                     File f = new File(inputFile.getParentFile(), filename);
                     if (f.exists())
-                        materialInfo = parseMaterialFile(f);
+                        materials = parseMaterialFile(f);
+                }
+                else if (token.equals("usemtl") && materials != null) {
+                    String materialName = lexer.readToNextLine();
+                    Material material = materials.get(materialName);
+                    if (material == null) {
+                        System.out.printf("Material '%s' does not exist in .mtl file%n", materialName);
+                        return false;
+                    }
+
+                    if (currentSubmesh != null) {
+                        currentSubmesh.indexCount = indices.size() - currentSubmesh.indexStart;
+                    }
+
+                    currentSubmesh = new Submesh();
+                    currentSubmesh.indexStart = indices.size();
+                    if (material.diffuseTexture != null) {
+                        currentSubmesh.diffuseTextureIndex = texturePaths.indexFor(material.diffuseTexture);
+                    }
+                    submeshes.add(currentSubmesh);
                 }
                 else if (token.equals("v")) {
                     Vector3 v = new Vector3();
@@ -320,6 +383,11 @@ public class ObjCompiler implements AssetCompiler {
                     texcoords.add(uv);
                 }
                 else if (token.equals("f")) {
+                    if (currentSubmesh == null) {
+                        currentSubmesh = new Submesh();
+                        currentSubmesh.indexStart = indices.size();
+                        submeshes.add(currentSubmesh);
+                    }
                     for (int i = 0; i < 3; ++i) {
                         int posIdx = lexer.nextInt();
                         int normalIdx = Integer.MAX_VALUE;
@@ -348,11 +416,7 @@ public class ObjCompiler implements AssetCompiler {
                         v.idxPosition = posIdx;
                         v.idxNormal = normalIdx;
                         v.idxTexCoord = texCoordIdx;
-                        Integer index = vertices.get(v);
-                        if (index == null) {
-                            index = vertices.size();
-                            vertices.put(v, index);
-                        }
+                        int index = vertices.indexFor(v);
                         indices.add(index);
                     }
                 } else {
@@ -363,11 +427,8 @@ public class ObjCompiler implements AssetCompiler {
             return false;
         }
 
-        List<String> textures = new ArrayList<String>();
-        long diffuseTextureIndex = 0xFFFFFFFFFFFFFFFFL;
-        if (materialInfo != null && materialInfo.diffuseTexture != null) {
-            textures.add(materialInfo.diffuseTexture);
-            diffuseTextureIndex = 0;
+        if (currentSubmesh != null) {
+            currentSubmesh.indexCount = indices.size() - currentSubmesh.indexStart;
         }
 
         if (texcoords.isEmpty()) {
@@ -379,15 +440,15 @@ public class ObjCompiler implements AssetCompiler {
 
         try (BinaryWriter mdlFileWriter = new BinaryWriter(outputFiles.get(0));
              BinaryWriter mdgFileWriter = new BinaryWriter(outputFiles.get(1))) {
-            writeMDLFile(mdlFileWriter, indices.size(), diffuseTextureIndex);
+            writeMDLFile(mdlFileWriter, submeshes);
             writeMDGFile(
                 mdgFileWriter,
                 positions,
                 normals,
                 texcoords,
-                vertices,
+                vertices.convertToList(),
                 indices,
-                textures
+                texturePaths.convertToList()
             );
             return true;
         } catch (IOException e) {
